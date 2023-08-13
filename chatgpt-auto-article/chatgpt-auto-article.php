@@ -1,7 +1,7 @@
 <?php
 /*
   Plugin Name: chatgpt-auto-article
-  Plugin URI: https://taoka-toshiaki.com/
+  Plugin URI:
   Description: chatGPTで記事を量産する
   Version: 1.0.0
   Author: @toshiaki_taoka
@@ -99,6 +99,7 @@ function chatgpt_auto_article_page()
                 formData.append('title', document.querySelectorAll("[name^=title]")[keynum].value);
                 formData.append('keyword', document.querySelectorAll("[name^=keyword]")[keynum].value);
                 formData.append('datetime', document.querySelectorAll("[name^=date]")[keynum].value + document.querySelectorAll("[name^=appt]")[keynum].value + ":00");
+                document.querySelectorAll(".reslut")[keynum].innerHTML = "■ 処理中 ■";
                 let init = {
                     method: 'POST',
                     body: formData,
