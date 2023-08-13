@@ -1,122 +1,74 @@
 <?php
-/*
-  Plugin Name: chatgpt-auto-article
-  Plugin URI:
-  Description: chatGPTで記事を量産する
-  Version: 1.0.0
-  Author: @toshiaki_taoka
-  Author URI: https://twitter.com/toshiaki_taoka
+/**
+ * ajax
+ * @return false
  */
-
-if (!defined('ABSPATH')) exit;
-require "common/post-chatgpt.php";
-
-add_action('admin_init', 'save_chatgpt_auto_article');
-add_action('admin_menu', 'chatgpt_auto_article_menu');
-
-function chatgpt_auto_article_menu()
+function chatgpt_auto_article_wppost_ajax_handler()
 {
-    add_menu_page(
-        'chatGPTで記事を量産する', // ページのタイトル
-        'chatgpt-AutoArticle', // メニューのタイトル
-        'manage_options', // 必要な権限
-        'chatgpt-auto-article', // ページの識別子
-        'chatgpt_auto_article_page', // ページのコールバック関数
-    );
-}
+    try {
+        if ($_COOKIE['chatgpt_auto_csrf_token'] === $_POST["chatgpt_auto_csrf_token"]) {
 
-function save_chatgpt_auto_article()
-{
-    register_setting('chatgpt-auto-article-group', 'chatgpt-auto-article-group-api-key');
-}
-
-function chatgpt_auto_article_page()
-{
-    $toke_byte = openssl_random_pseudo_bytes(16);
-    $csrf_token = bin2hex($toke_byte);
-    setcookie('chatgpt_auto_csrf_token', $csrf_token, time() + 3600,"/",$_SERVER['SERVER_NAME']);
-
-    $csrf_token = $_COOKIE['chatgpt_auto_csrf_token'];
-    $chatgptApiKey = get_option("chatgpt-auto-article-group-api-key") ?: "";
-?>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
-    <div class="container">
-        <div class="row">
-            <form action="options.php" method="post">
-                <?php
-                settings_fields('chatgpt-auto-article-group');
-                do_settings_sections('chatgpt-auto-article-group');
-                ?>
-                <div class="col-12">
-                    chatGPT_APIKEY:
-                </div>
-                <div class="col-12">
-                    <input class="form-control" type="password" name="chatgpt-auto-article-group-api-key" value="<?= esc_attr($chatgptApiKey) ?>">
-                </div>
-                <?php submit_button(); ?>
-            </form>
-            <?php
-            $i = 0;
-            $datatime = new DateTime();
-            while ($i < 7) {
-                $datatime->modify('+1 days');
-                $i++;
-            ?>
-                <input type="hidden" name="token" value="<?= $csrf_token ?>">
-                <div class="col-12">
-
-                    <span class="reslut"></span><br>投稿予定日:<?= $datatime->format('Y年m月d日') ?><input type="time" name="appt[]" required>
-                    タイトル:
-                    <input class="form-control" type="hidden" name="date[]" value="<?= $datatime->format('Y-m-d ') ?>">
-
-                </div>
-                <div class="col-12">
-                    <input class="form-control" type="text" name="title[]" value="" required>
-                </div>
-                <div class="col-12">
-                    生成させたい記事に対してのキーワード:
-                </div>
-                <div class="col-12">
-                    <input class="form-control" type="text" name="keyword[]" value="" required>
-                </div>
-                <hr>
-            <?php
+            if (chatgpt_auto_article_wppost_ajax(strip_tags($_POST["title"]), strip_tags($_POST["keyword"]), strip_tags($_POST["datetime"]))) {
+                print json_encode(["res" => "OK"]);
+            } else {
+                print json_encode(["res" => "error"]);
             }
-            ?>
-            <button class="btn btn-success btn-lg " id="make" type="button" role="button">記事を量産する</button>
-        </div>
-    </div>
-    <script>
-        document.getElementById("make").addEventListener("click", make2023);
-
-        function make2023() {
-            document.querySelectorAll(".reslut").forEach(el => {
-                el.innerHTML = "";
-            });
-            document.querySelectorAll("[name^=keyword]").forEach((el, keynum) => {
-                let formData = new FormData();
-                formData.append('chatgpt_auto_csrf_token', document.querySelector("[name^=token]").value);
-                formData.append('title', document.querySelectorAll("[name^=title]")[keynum].value);
-                formData.append('keyword', document.querySelectorAll("[name^=keyword]")[keynum].value);
-                formData.append('datetime', document.querySelectorAll("[name^=date]")[keynum].value + document.querySelectorAll("[name^=appt]")[keynum].value + ":00");
-                document.querySelectorAll(".reslut")[keynum].innerHTML = "■ 処理中 ■";
-                let init = {
-                    method: 'POST',
-                    body: formData,
-                };
-                fetch("https://<?= $_SERVER['SERVER_NAME'] ?>/wp-admin/admin-ajax.php?action=chatgpt_auto_article_wppost_action", init).then(response => response.json()).then(data => {
-                    if (data.res === "OK") {
-                        document.querySelectorAll(".reslut")[keynum].innerHTML = "■ 完了 ■";
-                    }else{
-                        document.querySelectorAll(".reslut")[keynum].innerHTML = "■ 失敗 ■";
-                    }
-                });
-            });
+        }else{
+            print json_encode(["res" => "NG"]);
         }
-    </script>
-<?php
-
+    } catch (\Throwable $th) {
+        //throw $th;
+        // print $th->getMessage();
+        print json_encode(["res" => "error"]);
+    }
+    wp_die();
 }
 
-add_action('wp_ajax_chatgpt_auto_article_wppost_action', 'chatgpt_auto_article_wppost_ajax_handler');
-add_action('wp_ajax_nopriv_chatgpt_auto_article_wppost_action', 'chatgpt_auto_article_wppost_ajax_handler');
+/**
+ * OpenAI APIを使用して記事を生成
+ * @param string $title
+ * @param string $keyword
+ * @param string $datetime
+ * @return false
+ */
+function chatgpt_auto_article_wppost_ajax(string $title = "", string $keyword = "", string $datetime = "")
+{
+    try {
+        require "vendor/autoload.php";
+
+        if (!$title) return false;
+        if (!$keyword) return false;
+        if (!$datetime) return false;
+
+        $client = OpenAI::client(get_option("chatgpt-auto-article-group-api-key"));
+        $result = $client->chat()->create([
+            'model' => 'gpt-3.5-turbo',
+            'messages' => [
+                ["role" => "system", "content" => 'あなたはブロガーです、キーワードを元に記事を書いてください。'],
+                ["role" => "system", "content" => '出来れば500文字以上の記事を書いてください。'],
+                ['role' => 'user', 'content' => $keyword],
+            ]
+        ]);
+        if (isset($result->choices[0]->message->content)) {
+            $textdata = explode("\n",$result->choices[0]->message->content);
+            foreach($textdata as $key=>$val){
+                $textdata[$key] = "<p>".$val."</p>";
+            }
+            $my_post = array(
+                'post_title' => $title,
+                'post_content' =>"<!-- wp:paragraph -->".implode("",$textdata)."<!-- /wp:paragraph -->",
+                'post_status' => 'future',
+                'post_author' => 1,
+                'post_category' => array(0),
+                'post_date' => $datetime
+            );
+            $post_id = wp_insert_post($my_post, null);
+            return true;
+        }
+        return false;
+    } catch (\Throwable $th) {
+        //throw $th;
+        //print $th->getMessage();
+        return false;
+    }
+}
